@@ -12,19 +12,3 @@ This folder handles the memory storage simulation, performance metrics, and test
 
 ***
 
-### How to add this and push it:
-
-Run these commands in your terminal from the main project folder:
-
-```bash
-cd ram_and_tests
-touch README.md
-```
-*(Open the README.md file in your text editor, paste the text above, and save it.)*
-
-```bash
-cd ..
-git add .
-git commit -m "Added README for ram_and_tests folder"
-git push origin main
-```
