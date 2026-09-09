@@ -1,4 +1,3 @@
-Here is a clean, simple README without the emojis and fluff. Copy and paste this into your `README.md`:
 
 ***
 
@@ -33,9 +32,4 @@ tests/attacker.py   - Buffer overflow attack script
 
 ***
 
-Push this to your repo:
-```bash
-git add README.md
-git commit -m "Added simple README"
-git push origin main
-```
+
