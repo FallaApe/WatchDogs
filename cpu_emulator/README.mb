@@ -1,0 +1,180 @@
+Here is a fully reformatted, retro-arcade "hacker" style README for Member 2. It keeps all the technical beef but wraps it in a terminal/CRT aesthetic that looks super impressive and fun to read. 
+
+Tell Member 2 to save this as `README.md` in their folder.
+
+***
+
+````markdown
+# ▓▒░ WATCHDOGS ░▒▓
+### ┤ Memory Controller & Security Logic ├
+
+> **SYSTEM ALERT:** A hardware-level memory protection module intercepting all CPU-to-RAM traffic. Enforcing strict **base & limit register** bounds checking. Illegal access triggers a hardware-style exception (**TRAP**). The data never reaches RAM. 
+
+`[ SYSTEM ]` Online
+`[ MODULE ]` Member 2 of 3 // COA Project
+`[ STATUS ]` :: SECURED
+
+---
+
+### ▓▒░ NETWORK MAP ░▒▓
+
+```text
+     memory request                     validated request
+┌─────┐ ──────────► ┌──────────────────────┐ ──────────► ┌─────┐
+│ CPU │             │  MEMORY CONTROLLER   │             │ RAM │
+│ M1  │ ◄────────── │   (the Watchdog)     │ ◄────────── │ M3  │
+└─────┘  ok / TRAP  └──────────────────────┘ read/write  └─────┘
+```
+
+`> SYS_MSG: CPU isolation enforced. Every read, write, and fetch goes through the watchdog.`
+
+---
+
+### ▓▒░ HARDWARE SIMULATION ░▒▓
+
+| CONCEPT | IMPLEMENTATION |
+|---|---|
+| Base & limit registers | each `MemoryRegion` holds a `(base, limit)` pair |
+| Memory bounds checking | `base ≤ addr` **AND** `addr + size ≤ base + limit` |
+| Multi-byte / off-by-one | an access must fit *entirely* inside its region |
+| Hardware exceptions | `MemoryViolationError` — simulated segfault |
+| Permission bits (R/W/X) | `AccessType` flags, including **NX** (no-execute) |
+| Address-space bounds | 16-bit space, `0x0000`–`0xFFFF` |
+| Security overhead | per-check cycle cost → protected vs. unprotected benchmark |
+
+#### > EXECUTION PROTOCOL (HARDWARE ORDER)
+```text
+[1] size sanity                 (size >= 1)
+[2] inside the address space    (0x0000 <= addr < 0xFFFF)
+[3] a region owns the address   (base <= addr < base + limit)
+[4] the whole access fits       (addr + size <= base + limit)   ← OFF-BY-ONE KILLER
+[5] permissions allow it        (R / W / X bits)
+```
+`> SYS_MSG: All five pass = request forwarded to RAM. Any failure = TRAP.`
+
+---
+
+### ▓▒░ THREAT MITIGATION ░▒▓
+
+| ATTACK VECTOR | EXAMPLE | BLOCKED BECAUSE... |
+|---|---|---|
+| Buffer overflow | 100-byte write into 10-byte alloc | `addr + size` crosses the limit |
+| Off-by-one overflow | 2-byte write starting at last valid byte | same check — naive checkers miss it |
+| Unmapped memory | read @ `0x0500` | no region owns the address |
+| Code injection | write into read-only code region | code region is locked `R-X` |
+| Data execution (NX/DEP) | instruction fetch from stack | stack has no EXECUTE bit |
+
+---
+
+### ▓▒░ INTERFACE & API ░▒▓
+
+| METHOD | ACTION |
+|---|---|
+| `map_region(name, base, limit, perms)` | Install a base/limit register pair |
+| `unmap_region(name)` | Free a region — later accesses fault |
+| `check_access(addr, size, access)` → `bool` | `True` = safe, `False` = attack |
+| `read(addr, size)` | Validated read → forwarded to RAM |
+| `write(addr, value, size)` | Validated write → forwarded to RAM |
+| `fetch(addr, size)` | Instruction fetch path — requires EXECUTE |
+| `dump_violation_report()` / `dump_stats()` | Report helpers |
+| `reset_stats()` | Zero all counters between benchmark runs |
+
+---
+
+### ▓▒░ EXECUTION EXAMPLE ░▒▓
+
+```python
+from memory_controller import (MemoryController, SimpleRAM,
+                               AccessType, MemoryViolationError)
+
+mc = MemoryController(SimpleRAM())
+
+# OS allocates a 10-byte buffer at 0x1000
+mc.map_region("buf", base=0x1000, limit=10,
+              permissions=AccessType.READ | AccessType.WRITE)
+
+mc.write(0x1000, 42, size=4)                 # safe: 4 bytes fit in 10
+
+try:
+    mc.write(0x1000, b"A" * 100, size=100)   # attack: 100-byte overflow
+except MemoryViolationError as e:
+    print("Blocked by watchdog:", e)          # never reaches RAM
+```
+
+---
+
+### ▓▒░ SYSTEM BOOT & DEMO ░▒▓
+
+```bash
+git clone https://github.com/<your-username>/watchdogs.git
+cd watchdogs
+
+python memory_controller.py        # live demo: safe program + attack program
+python test_memory_controller.py    # full test suite (no dependencies)
+```
+
+#### > TERMINAL OUTPUT:
+```text
+====================================================================
+ WatchDogs | Memory Controller (the Watchdog) | live demo
+====================================================================
+
+[setup] mapping regions (base + limit register pairs)
+   + code      base=0x0000  limit=256    perms=R-X
+   + heap_buf  base=0x1000  limit=10     perms=RW-
+   + stack     base=0xf000  limit=4096   perms=RW-
+
+[safe program]
+   write  4 bytes @ 0x1000 (fits in 10-byte heap_buf)   ALLOWED
+   read   4 bytes @ 0x1000                             ALLOWED -> 2a000000
+   fetch  1 byte   @ 0x0000 (code region, R-X)         ALLOWED -> 00
+
+[attack program]
+   execute stack data @ 0xF000 (NX / DEP violation)  BLOCKED
+        trap -> [EXECUTE] @ 0xf000 (size 1): permission denied: region 'stack' is RW-, EXECUTE requested
+   buffer overflow: 100-byte write into 10-byte heap_buf @ 0x1000  BLOCKED
+        trap -> [WRITE] @ 0x1000 (size 100): out of bounds: 100-byte access crosses the limit of region 'heap_buf' (base=0x1000, limit=10)
+   off-by-one: 2-byte write @ 0x1009 (the LAST valid byte)  BLOCKED
+   ...
+
+--------------------------------------------------------------------
+ WATCHDOG STATS
+--------------------------------------------------------------------
+ checks performed      : 8
+ violations caught     : 5
+ regions mapped        : 3
+ security cycles spent : 16 (2 per check)
+```
+
+---
+
+### ▓▒░ INTEGRATION CONTRACT ░▒▓
+
+**> MEMBER 1 (CPU Core & ISA):**
+* Call `mc.read()` / `mc.write()` / `mc.fetch()` for every memory access. Never touch RAM directly.
+* Wrap execution in `try / except MemoryViolationError` — that exception is your hardware trap. Abort the faulting instruction and jump to your trap handler.
+* On `ALLOC`, call `mc.map_region(...)` so the watchdog learns the new boundary; on `FREE`, call `mc.unmap_region(...)`.
+
+**> MEMBER 3 (RAM, Framework & Attacks):**
+* RAM must expose `read(address, size)` and `write(address, value, size)`. Plug it in via `MemoryController(ram)` or `mc.attach(ram)`.
+* For the with/without-security benchmark: run the same trace with `security_overhead_cycles=0` (unprotected baseline) vs `2` (protected), then compare `mc.stats["security_cycles"]`.
+
+---
+
+### ▓▒░ TEAM MATRIX ░▒▓
+
+| OPERATIVE | MODULE |
+|---|---|
+| M1 | CPU Core & ISA |
+| **M2** | **Memory Controller & Security Logic (THIS MODULE)** |
+| M3 | RAM, Simulator Framework & Attack Suite |
+
+---
+
+### ▓▒░ ROADMAP ░▒▓
+- [ ] Per-process region sets (context switch reloads base/limit registers)
+- [ ] MMU-style address translation
+- [ ] C port of the hot check loop for cycle-accurate timing
+
+`[ EOF ]` // MIT License
+````
